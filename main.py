@@ -1356,7 +1356,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ You are not authorized to use this bot!\n"
             "👤 Contact the admin to get access.\n\n"
             f"🆔 **Your ID:** `{user_id}`\n"
-            f"👤 **Username:** @{username}\n\n"
+            f"👤 **Username:** @{uskimaki}\n\n"
             "📝 Send your ID to the admin for authorization."
         )
     
