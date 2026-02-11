@@ -3,10 +3,17 @@
 import asyncio
 import aiohttp
 import time
+import json
+import os
+from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 BOT_TOKEN = "8546588357:AAFdU_j5_fMlvsFwkK53pgcXT4fVbpMenQA"
+
+# Admin Configuration
+ADMIN_ID = 7678087570
+AUTHORIZED_USERS_FILE = "authorized_users.json"
 
 APIS = [
     {
@@ -1091,9 +1098,76 @@ APIS = [
     }
 ]
 
+class UserManager:
+    """Manages authorized users with JSON storage"""
+    
+    def __init__(self, filename=AUTHORIZED_USERS_FILE):
+        self.filename = filename
+        self.users = self.load_users()
+    
+    def load_users(self):
+        """Load authorized users from JSON file"""
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+    
+    def save_users(self):
+        """Save authorized users to JSON file"""
+        with open(self.filename, 'w') as f:
+            json.dump(self.users, f, indent=2)
+    
+    def add_user(self, user_id, username=None, added_by=ADMIN_ID):
+        """Add a user to authorized list"""
+        user_id_str = str(user_id)
+        self.users[user_id_str] = {
+            "user_id": user_id,
+            "username": username,
+            "added_by": added_by,
+            "added_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "total_attacks": 0,
+            "last_attack": None
+        }
+        self.save_users()
+    
+    def remove_user(self, user_id):
+        """Remove a user from authorized list"""
+        user_id_str = str(user_id)
+        if user_id_str in self.users:
+            del self.users[user_id_str]
+            self.save_users()
+            return True
+        return False
+    
+    def is_authorized(self, user_id):
+        """Check if user is authorized (admin or in authorized list)"""
+        if user_id == ADMIN_ID:
+            return True
+        return str(user_id) in self.users
+    
+    def update_stats(self, user_id):
+        """Update user attack statistics"""
+        user_id_str = str(user_id)
+        if user_id_str in self.users:
+            self.users[user_id_str]["total_attacks"] += 1
+            self.users[user_id_str]["last_attack"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.save_users()
+    
+    def get_user_info(self, user_id):
+        """Get user information"""
+        return self.users.get(str(user_id))
+    
+    def get_all_users(self):
+        """Get all authorized users"""
+        return self.users
+
 class BomberBot:
     def __init__(self):
         self.active_attacks = {}
+        self.user_manager = UserManager()
     
     async def start_bombing(self, phone, duration, user_id):
         if user_id in self.active_attacks:
@@ -1111,13 +1185,16 @@ class BomberBot:
             "cycles": 0
         }
         
+        # Update user stats
+        self.user_manager.update_stats(user_id)
+        
         asyncio.create_task(self._bomb_worker(user_id, phone, duration))
         
-        return (f"💀 MEGA BOMBING STARTED!\n\n"
-                f"📱 Target: +91{phone}\n" 
-                f"⏰ Duration: {duration} min\n"
-                f"📡 APIs: {len(APIS)}\n"
-                f"🔄 Auto-Repeat: YES\n\n"
+        return (f"💀 **MEGA BOMBING STARTED!**\n\n"
+                f"📱 **Target:** `+91{phone}`\n" 
+                f"⏰ **Duration:** {duration} min\n"
+                f"📡 **APIs:** {len(APIS)}\n"
+                f"🔄 **Auto-Repeat:** YES\n\n"
                 f"🛑 Use /stop to stop")
     
     async def stop_bombing(self, user_id):
@@ -1127,25 +1204,25 @@ class BomberBot:
             duration = time.time() - stats["start_time"]
             del self.active_attacks[user_id]
             
-            return (f"🛑 BOMBING STOPPED!\n\n"
-                    f"✅ Success: {stats['success']}\n"
-                    f"❌ Failed: {stats['failed']}\n" 
-                    f"🔄 Cycles: {stats['cycles']}\n"
-                    f"⏰ Duration: {duration:.1f}s\n"
-                    f"📱 Target: +91{stats['phone']}")
+            return (f"🛑 **BOMBING STOPPED!**\n\n"
+                    f"✅ **Success:** {stats['success']}\n"
+                    f"❌ **Failed:** {stats['failed']}\n" 
+                    f"🔄 **Cycles:** {stats['cycles']}\n"
+                    f"⏰ **Duration:** {duration:.1f}s\n"
+                    f"📱 **Target:** `+91{stats['phone']}`")
         return "⚠️ No active bombing!"
     
     async def get_stats(self, user_id):
         if user_id in self.active_attacks:
             stats = self.active_attacks[user_id]
             duration = time.time() - stats["start_time"]
-            return (f"📊 LIVE STATS:\n\n"
-                    f"✅ Success: {stats['success']}\n"
-                    f"❌ Failed: {stats['failed']}\n"
-                    f"🔄 Cycles: {stats['cycles']}\n" 
-                    f"⏰ Duration: {duration:.1f}s\n"
-                    f"📱 Target: +91{stats['phone']}\n"
-                    f"⚡ Status: RUNNING...")
+            return (f"📊 **LIVE STATS:**\n\n"
+                    f"✅ **Success:** {stats['success']}\n"
+                    f"❌ **Failed:** {stats['failed']}\n"
+                    f"🔄 **Cycles:** {stats['cycles']}\n" 
+                    f"⏰ **Duration:** {duration:.1f}s\n"
+                    f"📱 **Target:** `+91{stats['phone']}`\n"
+                    f"⚡ **Status:** RUNNING...")
         return "ℹ️ No active bombing. Use /bomb to start."
     
     async def _bomb_worker(self, user_id, phone, duration):
@@ -1205,25 +1282,99 @@ class BomberBot:
 # Initialize bot
 bomber = BomberBot()
 
+# Authorization decorator
+def admin_only(func):
+    """Decorator to restrict commands to admin only"""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if user_id != ADMIN_ID:
+            await update.message.reply_text(
+                "🚫 **ACCESS DENIED**\n\n"
+                "❌ This command is for admin only!\n"
+                "👤 Contact the bot owner for access."
+            )
+            return
+        return await func(update, context)
+    return wrapper
+
+def authorized_only(func):
+    """Decorator to restrict commands to authorized users"""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if not bomber.user_manager.is_authorized(user_id):
+            await update.message.reply_text(
+                "🚫 **ACCESS DENIED**\n\n"
+                "❌ You are not authorized to use this bot!\n"
+                "👤 Contact the admin to get access.\n"
+                f"🆔 Your ID: `{user_id}`"
+            )
+            return
+        return await func(update, context)
+    return wrapper
+
 # Telegram handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "💀 BOMBER BOT - 100 APIS\n\n"
-        "📋 Commands:\n"
-        "/bomb <phone> <duration> - Start bombing\n" 
-        "/stop - Stop bombing\n"
-        "/stats - Show stats\n\n"
-        "🎯 Example:\n"
-        "/bomb 9876543210 5\n\n"
-        "⚡ 100 APIs Loaded!\n"
-        "⚠️ Use responsibly!"
-    )
+    user_id = update.effective_user.id
+    username = update.effective_user.username or "Unknown"
+    
+    is_admin = user_id == ADMIN_ID
+    is_authorized = bomber.user_manager.is_authorized(user_id)
+    
+    if is_admin:
+        message = (
+            "👑 **ADMIN PANEL - BOMBER BOT**\n\n"
+            "🎯 **User Commands:**\n"
+            "├ /bomb <phone> <duration> - Start bombing\n"
+            "├ /stop - Stop bombing\n"
+            "└ /stats - Show stats\n\n"
+            "🔐 **Admin Commands:**\n"
+            "├ /add <userid> - Add user\n"
+            "├ /remove <userid> - Remove user\n"
+            "├ /users - List all users\n"
+            "├ /info <userid> - User info\n"
+            "└ /botinfo - Bot statistics\n\n"
+            f"📡 **APIs Loaded:** {len(APIS)}\n"
+            f"👤 **Your ID:** `{user_id}`\n"
+            "⚡ **Status:** ADMIN ACCESS"
+        )
+    elif is_authorized:
+        message = (
+            "💀 **BOMBER BOT - AUTHORIZED USER**\n\n"
+            "📋 **Available Commands:**\n"
+            "├ /bomb <phone> <duration> - Start bombing\n"
+            "├ /stop - Stop bombing\n"
+            "└ /stats - Show stats\n\n"
+            "🎯 **Example:**\n"
+            "`/bomb 9876543210 5`\n\n"
+            f"📡 **APIs:** {len(APIS)}\n"
+            f"👤 **Your ID:** `{user_id}`\n"
+            "✅ **Status:** AUTHORIZED"
+        )
+    else:
+        message = (
+            "🚫 **ACCESS DENIED**\n\n"
+            "❌ You are not authorized to use this bot!\n"
+            "👤 Contact the admin to get access.\n\n"
+            f"🆔 **Your ID:** `{user_id}`\n"
+            f"👤 **Username:** @{username}\n\n"
+            "📝 Send your ID to the admin for authorization."
+        )
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
 
+@authorized_only
 async def bomb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if len(context.args) != 2:
-        await update.message.reply_text("❌ Usage: /bomb <phone> <duration>\nExample: /bomb 9876543210 5")
+        await update.message.reply_text(
+            "❌ **Invalid Usage!**\n\n"
+            "📝 **Correct Format:**\n"
+            "`/bomb <phone> <duration>`\n\n"
+            "🎯 **Example:**\n"
+            "`/bomb 9876543210 5`",
+            parse_mode='Markdown'
+        )
         return
     
     phone, duration = context.args
@@ -1242,29 +1393,183 @@ async def bomb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     result = await bomber.start_bombing(phone, duration, user_id)
-    await update.message.reply_text(result)
+    await update.message.reply_text(result, parse_mode='Markdown')
 
+@authorized_only
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     result = await bomber.stop_bombing(user_id)
-    await update.message.reply_text(result)
+    await update.message.reply_text(result, parse_mode='Markdown')
 
+@authorized_only
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     result = await bomber.get_stats(user_id)
-    await update.message.reply_text(result)
+    await update.message.reply_text(result, parse_mode='Markdown')
+
+@admin_only
+async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "❌ **Invalid Usage!**\n\n"
+            "📝 **Correct Format:**\n"
+            "`/add <userid>`\n\n"
+            "🎯 **Example:**\n"
+            "`/add 123456789`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    try:
+        new_user_id = int(context.args[0])
+        
+        if bomber.user_manager.is_authorized(new_user_id):
+            await update.message.reply_text(f"⚠️ User `{new_user_id}` is already authorized!", parse_mode='Markdown')
+            return
+        
+        bomber.user_manager.add_user(new_user_id)
+        await update.message.reply_text(
+            f"✅ **User Added Successfully!**\n\n"
+            f"🆔 **User ID:** `{new_user_id}`\n"
+            f"📅 **Added:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"👤 **Added By:** Admin",
+            parse_mode='Markdown'
+        )
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID! Use numbers only.")
+
+@admin_only
+async def remove_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "❌ **Invalid Usage!**\n\n"
+            "📝 **Correct Format:**\n"
+            "`/remove <userid>`\n\n"
+            "🎯 **Example:**\n"
+            "`/remove 123456789`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    try:
+        user_id = int(context.args[0])
+        
+        if user_id == ADMIN_ID:
+            await update.message.reply_text("❌ Cannot remove admin!")
+            return
+        
+        if bomber.user_manager.remove_user(user_id):
+            await update.message.reply_text(
+                f"✅ **User Removed Successfully!**\n\n"
+                f"🆔 **User ID:** `{user_id}`\n"
+                f"📅 **Removed:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(f"❌ User `{user_id}` not found in authorized list!", parse_mode='Markdown')
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID! Use numbers only.")
+
+@admin_only
+async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    users = bomber.user_manager.get_all_users()
+    
+    if not users:
+        await update.message.reply_text("📋 No authorized users yet!")
+        return
+    
+    message = "👥 **AUTHORIZED USERS LIST**\n\n"
+    
+    for idx, (user_id, user_data) in enumerate(users.items(), 1):
+        username = user_data.get('username', 'Unknown')
+        added_at = user_data.get('added_at', 'N/A')
+        total_attacks = user_data.get('total_attacks', 0)
+        last_attack = user_data.get('last_attack', 'Never')
+        
+        message += (
+            f"**{idx}. User ID:** `{user_id}`\n"
+            f"   ├ Username: @{username}\n"
+            f"   ├ Added: {added_at}\n"
+            f"   ├ Total Attacks: {total_attacks}\n"
+            f"   └ Last Attack: {last_attack}\n\n"
+        )
+    
+    message += f"📊 **Total Users:** {len(users)}"
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+@admin_only
+async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "❌ **Invalid Usage!**\n\n"
+            "📝 **Correct Format:**\n"
+            "`/info <userid>`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    try:
+        user_id = int(context.args[0])
+        user_data = bomber.user_manager.get_user_info(user_id)
+        
+        if not user_data:
+            await update.message.reply_text(f"❌ User `{user_id}` not found!", parse_mode='Markdown')
+            return
+        
+        message = (
+            f"👤 **USER INFORMATION**\n\n"
+            f"🆔 **User ID:** `{user_id}`\n"
+            f"👤 **Username:** @{user_data.get('username', 'Unknown')}\n"
+            f"📅 **Added:** {user_data.get('added_at', 'N/A')}\n"
+            f"👤 **Added By:** Admin\n"
+            f"📊 **Total Attacks:** {user_data.get('total_attacks', 0)}\n"
+            f"⏰ **Last Attack:** {user_data.get('last_attack', 'Never')}"
+        )
+        await update.message.reply_text(message, parse_mode='Markdown')
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID! Use numbers only.")
+
+@admin_only
+async def bot_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total_users = len(bomber.user_manager.get_all_users())
+    active_attacks = len(bomber.active_attacks)
+    
+    message = (
+        f"🤖 **BOT INFORMATION**\n\n"
+        f"📡 **Total APIs:** {len(APIS)}\n"
+        f"👥 **Authorized Users:** {total_users}\n"
+        f"⚡ **Active Attacks:** {active_attacks}\n"
+        f"👑 **Admin ID:** `{ADMIN_ID}`\n"
+        f"📅 **Bot Status:** ONLINE\n"
+        f"🔐 **Access Control:** ENABLED\n\n"
+        f"💾 **Storage:** JSON File\n"
+        f"📂 **File:** {AUTHORIZED_USERS_FILE}"
+    )
+    await update.message.reply_text(message, parse_mode='Markdown')
 
 def main():
     try:
         app = Application.builder().token(BOT_TOKEN).build()
         
+        # User commands
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("bomb", bomb))
         app.add_handler(CommandHandler("stop", stop))
         app.add_handler(CommandHandler("stats", stats))
         
+        # Admin commands
+        app.add_handler(CommandHandler("add", add_user))
+        app.add_handler(CommandHandler("remove", remove_user))
+        app.add_handler(CommandHandler("users", list_users))
+        app.add_handler(CommandHandler("info", user_info))
+        app.add_handler(CommandHandler("botinfo", bot_info))
+        
+        print("=" * 50)
         print("🤖  BOMBER BOT STARTED!")
         print(f"📡 Loaded {len(APIS)} APIs")
+        print(f"👑 Admin ID: {ADMIN_ID}")
+        print(f"🔐 Access Control: ENABLED")
+        print("=" * 50)
         
         # Run the bot
         app.run_polling(drop_pending_updates=True)
