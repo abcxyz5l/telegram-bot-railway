@@ -1549,6 +1549,7 @@ async def bot_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     try:
+        # Create application
         app = Application.builder().token(BOT_TOKEN).build()
         
         # User commands
@@ -1571,11 +1572,18 @@ def main():
         print(f"🔐 Access Control: ENABLED")
         print("=" * 50)
         
-        # Run the bot
-        app.run_polling(drop_pending_updates=True)
+        # Run the bot with proper error handling
+        app.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
         
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
     except Exception as e:
         print(f"❌ Bot failed to start: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
