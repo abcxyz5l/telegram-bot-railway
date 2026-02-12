@@ -10,12 +10,12 @@ from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-#ogggggg bot  BOT_TOKEN = "8546588357:AAFdU_j5_fMlvsFwkK53pgcXT4fVbpMenQA"
+BOT_TOKEN = "8546588357:AAFdU_j5_fMlvsFwkK53pgcXT4fVbpMenQA"
 
 # Admin Configuration
 
 
-BOT_TOKEN = "8531349883:AAGVi6bXMspjV137JXP6KBQaz8GWxg_533g"
+#test botBOT_TOKEN = "8531349883:AAGVi6bXMspjV137JXP6KBQaz8GWxg_533g"
 ADMIN_ID = 7678087570
 AUTHORIZED_USERS_FILE = "authorized_users.json"
 BLOCKED_NUMBERS_FILE = "blocked_numbers.json"
